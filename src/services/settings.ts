@@ -27,7 +27,7 @@ export const defaultRoles: RoleGroup[] = [
   {
     id: 'admin',
     name: '一般管理員',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
+    permissions: { manageUsers: false, viewAllData: true, manageSettings: true }
   },
   {
     id: 'user',

@@ -77,6 +77,9 @@ export function AdminUsers() {
     }
   };
 
+  const pendingUsers = users.filter((user) => user.status === 'pending');
+  const approvedUsers = users.filter((user) => user.status === 'approved');
+
   if (loading) return <div className="text-center py-10 text-slate-500">載入中...</div>;
 
   return (
@@ -85,60 +88,106 @@ export function AdminUsers() {
         <Users className="w-5 h-5" />
         <h2 className="text-lg font-bold">人員管理</h2>
       </div>
-      
-      {users.map(u => {
-        const userRoleGroup = roles.find(r => r.id === u.roleId);
-        return (
-          <div key={u.email} className="glass-card p-4 space-y-4">
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="font-bold text-slate-800 dark:text-slate-100 text-lg">{u.name || '尚未設定姓名'}</div>
-                <div className="text-sm text-slate-500 mb-2">{u.email}</div>
-                <div className="flex gap-2">
-                  <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
-                    {userRoleGroup ? userRoleGroup.name : '無身分組'}
-                  </span>
-                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${u.status === 'approved' ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300'}`}>
-                    {u.status === 'approved' ? '已核准' : '等待核准'}
-                  </span>
-                </div>
-              </div>
-            </div>
 
-            {u.email !== 'a0938676069@gmail.com' && (
-              <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800 pt-3">
-                <div className="flex gap-2">
-                  {u.status === 'pending' ? (
+      <div className="glass-card p-4 flex items-center justify-between">
+        <div>
+          <div className="text-sm text-slate-500">待審核申請</div>
+          <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{pendingUsers.length}</div>
+        </div>
+        <div className="text-xs text-slate-500 text-right">
+          <div>已核准：{approvedUsers.length}</div>
+          <div>總人數：{users.length}</div>
+        </div>
+      </div>
+
+      {pendingUsers.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-amber-700 dark:text-amber-300">待審核申請</h3>
+          {pendingUsers.map((u) => {
+            const userRoleGroup = roles.find((role) => role.id === u.roleId);
+            return (
+              <div key={u.email} className="glass-card p-4 space-y-4 border border-amber-200 dark:border-amber-900/50">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-bold text-slate-800 dark:text-slate-100 text-lg">{u.name || '尚未設定姓名'}</div>
+                    <div className="text-sm text-slate-500 mb-2">{u.email}</div>
+                    <div className="flex gap-2">
+                      <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                        {userRoleGroup ? userRoleGroup.name : '無身分組'}
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded-full font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300">
+                        等待核准
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800 pt-3">
+                  <div className="flex gap-2">
                     <button onClick={() => handleUpdateUserStatus(u.email, 'approved')} className="flex-1 flex justify-center items-center gap-1 py-2 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium">
                       <Check className="w-4 h-4" /> 批准
                     </button>
-                  ) : (
                     <button onClick={() => handleUpdateUserStatus(u.email, 'pending')} className="flex-1 flex justify-center items-center gap-1 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium">
-                      <X className="w-4 h-4" /> 停權
+                      <X className="w-4 h-4" /> 保留待審
                     </button>
-                  )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {approvedUsers.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">已核准人員</h3>
+          {approvedUsers.map((u) => {
+            const userRoleGroup = roles.find((role) => role.id === u.roleId);
+            return (
+              <div key={u.email} className="glass-card p-4 space-y-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="font-bold text-slate-800 dark:text-slate-100 text-lg">{u.name || '尚未設定姓名'}</div>
+                    <div className="text-sm text-slate-500 mb-2">{u.email}</div>
+                    <div className="flex gap-2">
+                      <span className="text-xs px-2 py-1 rounded-full font-medium bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
+                        {userRoleGroup ? userRoleGroup.name : '無身分組'}
+                      </span>
+                      <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
+                        已核准
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                {u.status === 'approved' && (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs text-slate-500">變更身分組：</label>
-                    <select
-                      value={u.roleId || ''}
-                      onChange={(e) => handleChangeRole(u.email, e.target.value)}
-                      className="input-styled py-1.5 px-2 text-sm"
-                    >
-                      <option value="" disabled>請選擇身分組</option>
-                      {roles.map(r => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
+                {u.email !== 'a0938676069@gmail.com' && (
+                  <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-800 pt-3">
+                    <div className="flex gap-2">
+                      <button onClick={() => handleUpdateUserStatus(u.email, 'pending')} className="flex-1 flex justify-center items-center gap-1 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 transition-colors text-sm font-medium">
+                        <X className="w-4 h-4" /> 停權
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-slate-500">變更身分組：</label>
+                      <select
+                        value={u.roleId || ''}
+                        onChange={(e) => handleChangeRole(u.email, e.target.value)}
+                        className="input-styled py-1.5 px-2 text-sm"
+                      >
+                        <option value="" disabled>請選擇身分組</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      )}
 
       {/* Approval Modal */}
       {approvingEmail && (
