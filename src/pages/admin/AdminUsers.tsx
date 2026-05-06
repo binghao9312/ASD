@@ -20,13 +20,20 @@ export function AdminUsers() {
       try {
         const rolesData = await getRoles();
         setRoles(rolesData);
-        
+      } catch (error) {
+        console.error("Error fetching roles data:", error);
+      }
+      
+      try {
         unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
           setUsers(snapshot.docs.map(d => d.data() as UserData));
           setLoading(false);
+        }, (error) => {
+          console.error("Snapshot error:", error);
+          setLoading(false);
         });
       } catch (error) {
-        console.error("Error fetching users data:", error);
+        console.error("Error setting up snapshot:", error);
         setLoading(false);
       }
     };

@@ -44,14 +44,23 @@ export const defaultFormFields: FormField[] = [
 ];
 
 export const getRoles = async (): Promise<RoleGroup[]> => {
-  const docRef = doc(db, 'settings', 'roles');
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    return docSnap.data().groups as RoleGroup[];
+  try {
+    const docRef = doc(db, 'settings', 'roles');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data().groups as RoleGroup[];
+    }
+    try {
+      // Initialize if not exists
+      await setDoc(docRef, { groups: defaultRoles });
+    } catch (e) {
+      console.warn("Failed to write default roles", e);
+    }
+    return defaultRoles;
+  } catch (error) {
+    console.warn("Error fetching roles", error);
+    return defaultRoles;
   }
-  // Initialize if not exists
-  await setDoc(docRef, { groups: defaultRoles });
-  return defaultRoles;
 };
 
 export const saveRoles = async (groups: RoleGroup[]) => {
@@ -59,14 +68,23 @@ export const saveRoles = async (groups: RoleGroup[]) => {
 };
 
 export const getFormFields = async (): Promise<FormField[]> => {
-  const docRef = doc(db, 'settings', 'form');
-  const docSnap = await getDoc(docRef);
-  if (docSnap.exists()) {
-    return docSnap.data().fields as FormField[];
+  try {
+    const docRef = doc(db, 'settings', 'form');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data().fields as FormField[];
+    }
+    try {
+      // Initialize if not exists
+      await setDoc(docRef, { fields: defaultFormFields });
+    } catch (e) {
+      console.warn("Failed to write default form fields", e);
+    }
+    return defaultFormFields;
+  } catch (error) {
+    console.warn("Error fetching form fields", error);
+    return defaultFormFields;
   }
-  // Initialize if not exists
-  await setDoc(docRef, { fields: defaultFormFields });
-  return defaultFormFields;
 };
 
 export const saveFormFields = async (fields: FormField[]) => {
