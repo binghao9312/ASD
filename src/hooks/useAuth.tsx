@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { type User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../firebase';
 
 export interface UserData {
   email: string;
   name?: string;
+  building?: string;
+  floor?: string;
+  floorRole?: string;
   roleId?: string; // Links to settings/roles
   role: 'admin' | 'user'; // System fallback
   status: 'pending' | 'approved';
@@ -30,10 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const fetchUserData = async (email: string) => {
     try {
       const userDocRef = doc(db, 'users', email);
-      const userDoc = await getDoc(userDocRef);
-      if (userDoc.exists()) {
-        setUserData(userDoc.data() as UserData);
-      } else {
+      const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setUserData(docSnap.data() as UserData);
+        } else {
         // 自動建立新使用者
         const isMasterAdmin = email === 'a0938676069@gmail.com';
         const newUserData: UserData = {
@@ -42,9 +45,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           roleId: isMasterAdmin ? 'superadmin' : '',
           status: isMasterAdmin ? 'approved' : 'pending'
         };
-        await setDoc(userDocRef, newUserData);
-        setUserData(newUserData);
-      }
+        setDoc(userDocRef, newUserData);
+        }
+      });
     } catch (error) {
       console.error("Error fetching user data", error);
     }

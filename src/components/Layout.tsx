@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { LogOut, ScanLine, Clock, Building, Shield, Sun, Moon } from 'lucide-react';
+import { LogOut, ScanLine, Clock, Building, Shield, Sun, Moon, User } from 'lucide-react';
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -39,6 +39,7 @@ export function Layout() {
   const navItems = [
     { name: '掃描登記', path: '/scan', icon: ScanLine },
     { name: '歷史紀錄', path: '/history', icon: Clock },
+    { name: '個人檔案', path: '/setup', icon: User },
   ];
 
   if (userData?.roleId === 'superadmin' || userData?.roleId === 'admin' || userData?.role === 'admin') {

@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+﻿const fs = require('fs');
+
+const setupProfileContent = `import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -6,22 +8,13 @@ import { useAuth } from '../hooks/useAuth';
 import { UserCircle2 } from 'lucide-react';
 
 export function SetupProfile() {
-  const { user, userData, refreshUserData } = useAuth();
+  const { user, refreshUserData } = useAuth();
   const navigate = useNavigate();
-  const [name, setName] = useState(userData?.name || '');
-  const [building, setBuilding] = useState(userData?.building || '毅志');
-  const [floor, setFloor] = useState(userData?.floor || '1');
-  const [floorRole, setFloorRole] = useState(userData?.floorRole || '一般舍民');
+  const [name, setName] = useState('');
+  const [building, setBuilding] = useState('毅志');
+  const [floor, setFloor] = useState('1');
+  const [floorRole, setFloorRole] = useState('一般舍民');
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (userData) {
-      if (userData.name) setName(userData.name);
-      if (userData.building) setBuilding(userData.building);
-      if (userData.floor) setFloor(userData.floor);
-      if (userData.floorRole) setFloorRole(userData.floorRole);
-    }
-  }, [userData]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +37,7 @@ export function SetupProfile() {
     <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
       <div className="glass-card max-w-sm w-full p-8 text-center space-y-6 shadow-xl">
         <UserCircle2 className="w-12 h-12 text-primary-600 mx-auto" />
-        <h2 className="text-2xl font-bold">{userData?.name ? '個人檔案' : '歡迎使用 ASD'}</h2>
+        <h2 className="text-2xl font-bold">歡迎使用 ASD</h2>
         <form onSubmit={handleSubmit} className="space-y-4 text-left">
           <div>
             <label className="text-xs font-semibold text-slate-500">姓名</label>
@@ -71,12 +64,6 @@ export function SetupProfile() {
                 <option value="一般舍民">一般舍民</option>
                 <option value="正樓長">正樓長</option>
                 <option value="副樓長">副樓長</option>
-                {(userData?.roleId === 'admin' || userData?.roleId === 'superadmin' || userData?.role === 'admin') && (
-                  <>
-                    <option value="正舍長">正舍長</option>
-                    <option value="副舍長">副舍長</option>
-                  </>
-                )}
               </select>
             </div>
           </div>
@@ -88,3 +75,8 @@ export function SetupProfile() {
     </div>
   );
 }
+`;
+
+fs.writeFileSync('src/pages/SetupProfile.tsx', setupProfileContent, 'utf8');
+console.log("Rewrote SetupProfile.tsx");
+

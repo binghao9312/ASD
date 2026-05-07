@@ -115,8 +115,8 @@ export function Scan() {
       setMessage({ type: 'error', text: '房床號格式不正確' });
       return;
     }
-    if (typeof pieceCount !== 'number' || pieceCount < 1 || pieceCount > 5) {
-      setMessage({ type: 'error', text: '行李件數必須在 1 到 5 件之間' });
+    if (typeof pieceCount !== 'number' || pieceCount < 0 || pieceCount > 5) {
+      setMessage({ type: 'error', text: '行李件數必須在 0 到 5 件之間' });
       return;
     }
 
@@ -225,7 +225,7 @@ export function Scan() {
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-slate-700">旅客房床號</label>
+            <label className="text-sm font-semibold text-slate-700">房床號</label>
             <input
               type="text"
               value={roomNumber}
@@ -252,7 +252,7 @@ export function Scan() {
             <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">總共幾件 (最多5件)</label>
             <input
               type="number"
-              min="1"
+              min="0"
               max="5"
               value={pieceCount}
               onChange={(e) => {
