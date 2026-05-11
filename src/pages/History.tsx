@@ -29,7 +29,16 @@ export function History() {
   const [formFields, setFormFields] = useState<FormField[]>([]);
 
   useEffect(() => {
-    getFormFields().then(setFormFields);
+    Promise.all([
+      getFormFields('毅志'),
+      getFormFields('弘德'),
+      getFormFields('慧樓')
+    ]).then(([fields1, fields2, fields3]) => {
+      const allFields = [...fields1, ...fields2, ...fields3];
+      // remove duplicates by id if any
+      const uniqueFields = Array.from(new Map(allFields.map(f => [f.id, f])).values());
+      setFormFields(uniqueFields);
+    });
   }, []);
 
   useEffect(() => {

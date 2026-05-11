@@ -42,7 +42,15 @@ export function Scan() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     
-    getFormFields().then(fields => {
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    // 預先加載默認棧別的檢查項目
+    getFormFields('毅志').then(fields => {
       setFormFields(fields);
       const initCond: Record<string, boolean> = {};
       const initRem: Record<string, string> = {};
@@ -53,12 +61,24 @@ export function Scan() {
       setConditions(initCond);
       setRemarks(initRem);
     });
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-    };
   }, []);
+
+  useEffect(() => {
+    // 當棧別改變時，更新檢查項目
+    if (building) {
+      getFormFields(building).then(fields => {
+        setFormFields(fields);
+        const initCond: Record<string, boolean> = {};
+        const initRem: Record<string, string> = {};
+        fields.forEach(f => {
+          initCond[f.id] = false;
+          initRem[f.id] = '';
+        });
+        setConditions(initCond);
+        setRemarks(initRem);
+      });
+    }
+  }, [building]);
 
   const startScanner = () => {
     setIsScanning(true);
@@ -189,41 +209,74 @@ export function Scan() {
       )}
 
       <div className="glass-card p-5">
-        {!isScanning ? (
-          <div className="space-y-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-slate-700">QR Code ID</label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={qrId}
-                  onChange={(e) => setQrId(e.target.value)}
-                  placeholder="請掃描或輸入貼紙編號"
-                  className="input-styled flex-1"
-                />
-                <button
-                  type="button"
-                  onClick={startScanner}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-3 rounded-xl transition-colors shrink-0"
-                >
-                  <QrCode className="w-6 h-6" />
-                </button>
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {formFields.some(f => f.enabled) && (
+            <div className="space-y-3">
+              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">檢查項目</label>
+              <div className="flex flex-col gap-3">
+                {formFields.filter(f => f.enabled).map(field => (
+                  <div key={field.id} className="flex flex-col gap-2">
+                    <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={conditions[field.id] || false}
+                        onChange={(e) => setConditions({ ...conditions, [field.id]: e.target.checked })}
+                        className="w-5 h-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="font-medium text-slate-700 dark:text-slate-200">{field.label}</span>
+                    </label>
+                    {conditions[field.id] && field.requiresRemark && (
+                      <div className="pl-10">
+                        <input
+                          type="text"
+                          required
+                          value={remarks[field.id] || ''}
+                          onChange={(e) => setRemarks({ ...remarks, [field.id]: e.target.value })}
+                          placeholder="請輸入備註內容 (必填)"
+                          className="input-styled py-2 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div id="qr-reader" className="w-full overflow-hidden rounded-xl border border-slate-200" />
-            <button
-              onClick={stopScanner}
-              className="btn-secondary"
-            >
-              取消掃描
-            </button>
-          </div>
-        )}
+          )}
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+          {!isScanning ? (
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-semibold text-slate-700">QR Code ID</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={qrId}
+                    onChange={(e) => setQrId(e.target.value)}
+                    placeholder="請掃描或輸入貼紙編號"
+                    className="input-styled flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={startScanner}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-3 rounded-xl transition-colors shrink-0"
+                  >
+                    <QrCode className="w-6 h-6" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div id="qr-reader" className="w-full overflow-hidden rounded-xl border border-slate-200" />
+              <button
+                onClick={stopScanner}
+                className="btn-secondary"
+              >
+                取消掃描
+              </button>
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="text-sm font-semibold text-slate-700">房床號</label>
             <input
@@ -263,43 +316,10 @@ export function Scan() {
             />
           </div>
 
-          {formFields.some(f => f.enabled) && (
-            <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">檢查項目</label>
-              <div className="flex flex-col gap-3">
-                {formFields.filter(f => f.enabled).map(field => (
-                  <div key={field.id} className="flex flex-col gap-2">
-                    <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-                      <input
-                        type="checkbox"
-                        checked={conditions[field.id] || false}
-                        onChange={(e) => setConditions({ ...conditions, [field.id]: e.target.checked })}
-                        className="w-5 h-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
-                      />
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{field.label}</span>
-                    </label>
-                    {conditions[field.id] && field.requiresRemark && (
-                      <div className="pl-10">
-                        <input
-                          type="text"
-                          required
-                          value={remarks[field.id] || ''}
-                          onChange={(e) => setRemarks({ ...remarks, [field.id]: e.target.value })}
-                          placeholder="請輸入備註內容 (必填)"
-                          className="input-styled py-2 text-sm"
-                        />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <button
             type="submit"
             disabled={!qrId || !building || loading}
-            className="btn-primary disabled:opacity-50 disabled:active:scale-100 mt-2"
+            className="btn-primary disabled:opacity-50 disabled:active:scale-100"
           >
             {loading ? '儲存中...' : '確認登記'}
           </button>

@@ -21,15 +21,11 @@ function RequireAuth({ children, requireAdmin = false, allowPending = false }: {
     return <Navigate to="/login" replace />;
   }
 
-  if (!userData?.name && location.pathname !== '/setup-profile') {
-    return <Navigate to="/setup-profile" replace />;
+  if (!userData?.name && location.pathname !== '/setup') {
+    return <Navigate to="/setup" replace />;
   }
 
-  if (userData?.name && location.pathname === '/setup-profile') {
-    return <Navigate to="/scan" replace />;
-  }
-
-  if (userData?.status === 'pending' && !allowPending && location.pathname !== '/setup-profile') {
+  if (userData?.status === 'pending' && !allowPending && location.pathname !== '/setup') {
     return <Navigate to="/pending" replace />;
   }
 
@@ -44,11 +40,6 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/setup-profile" element={
-        <RequireAuth allowPending={true}>
-          <SetupProfile />
-        </RequireAuth>
-      } />
       <Route path="/pending" element={
         <RequireAuth allowPending={true}>
           <PendingApproval />
@@ -58,6 +49,7 @@ function AppRoutes() {
         <Route index element={<Navigate to="/scan" replace />} />
         <Route path="scan" element={<Scan />} />
         <Route path="history" element={<History />} />
+        <Route path="setup" element={<SetupProfile />} />
         <Route path="admin" element={<RequireAuth requireAdmin={true}><Admin /></RequireAuth>} />
       </Route>
       <Route path="*" element={<Navigate to="/scan" replace />} />

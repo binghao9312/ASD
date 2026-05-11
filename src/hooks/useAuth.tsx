@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+﻿import React, { createContext, useContext, useEffect, useState } from 'react';
 import { type User, onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, googleProvider, db } from '../firebase';
 
 export interface UserData {
@@ -9,8 +9,8 @@ export interface UserData {
   building?: string;
   floor?: string;
   floorRole?: string;
-  roleId?: string; // Links to settings/roles
-  role: 'admin' | 'user'; // System fallback
+  roleId?: string;
+  role: 'admin' | 'user';
   status: 'pending' | 'approved';
 }
 
@@ -30,47 +30,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchUserData = async (email: string) => {
-    try {
-      const userDocRef = doc(db, 'users', email);
-      const unsubscribe = onSnapshot(userDocRef, (docSnap) => {
-        if (docSnap.exists()) {
-          setUserData(docSnap.data() as UserData);
-        } else {
-        // 自動建立新使用者
-        const isMasterAdmin = email === 'a0938676069@gmail.com';
-        const newUserData: UserData = {
-          email: email,
-          role: isMasterAdmin ? 'admin' : 'user',
-          roleId: isMasterAdmin ? 'superadmin' : '',
-          status: isMasterAdmin ? 'approved' : 'pending'
-        };
-        setDoc(userDocRef, newUserData);
-        }
-      });
-    } catch (error) {
-      console.error("Error fetching user data", error);
-    }
-  };
-
-  const refreshUserData = async () => {
-    if (user?.email) {
-      await fetchUserData(user.email);
-    }
-  };
-
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    let unsubscribeUserDoc: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
+      
+      // Cleanup previous listener
+      if (unsubscribeUserDoc) {
+        unsubscribeUserDoc();
+        unsubscribeUserDoc = null;
+      }
+
       if (firebaseUser?.email) {
-        await fetchUserData(firebaseUser.email);
+        const userDocRef = doc(db, 'users', firebaseUser.email);
+        unsubscribeUserDoc = onSnapshot(userDocRef, async (docSnap) => {
+          if (docSnap.exists()) {
+            setUserData(docSnap.data() as UserData);
+          } else {
+            const isMasterAdmin = firebaseUser.email === 'a0938676069@gmail.com';
+            const newUserData: UserData = {
+              email: firebaseUser.email!,
+              role: isMasterAdmin ? 'admin' : 'user',
+              roleId: isMasterAdmin ? 'superadmin' : '',
+              status: isMasterAdmin ? 'approved' : 'pending'
+            };
+            await setDoc(userDocRef, newUserData);
+            setUserData(newUserData);
+          }
+          setLoading(false);
+        }, (error) => {
+          console.error("Error listening to user data", error);
+          setLoading(false);
+        });
       } else {
         setUserData(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUserDoc) unsubscribeUserDoc();
+    };
   }, []);
 
   const login = async () => {
@@ -89,6 +91,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error("Logout failed", error);
       throw error;
     }
+  };
+
+  const refreshUserData = async () => {
+    // This is mostly handled by onSnapshot now, but keeping for compatibility
   };
 
   return (

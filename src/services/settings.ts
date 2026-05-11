@@ -1,13 +1,13 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+﻿import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export interface RoleGroup {
   id: string;
   name: string;
   permissions: {
-    manageUsers: boolean; // 核准/管理人員
-    viewAllData: boolean; // 查看全館資料
-    manageSettings: boolean; // 系統設定(表單設定、身分組)
+    manageUsers: boolean;
+    viewAllData: boolean;
+    manageSettings: boolean;
   };
 }
 
@@ -25,22 +25,47 @@ export const defaultRoles: RoleGroup[] = [
     permissions: { manageUsers: true, viewAllData: true, manageSettings: true }
   },
   {
+    id: 'coordinator',
+    name: '總幹事',
+    permissions: { manageUsers: true, viewAllData: true, manageSettings: false }
+  },
+  {
+    id: 'dorm_head',
+    name: '正舍長',
+    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
+  },
+  {
+    id: 'deputy_dorm_head',
+    name: '副舍長',
+    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
+  },
+  {
+    id: 'floor_head',
+    name: '正樓長',
+    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
+  },
+  {
+    id: 'deputy_floor_head',
+    name: '副樓長',
+    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
+  },
+  {
     id: 'admin',
-    name: '一般管理員',
+    name: '管理員',
     permissions: { manageUsers: false, viewAllData: true, manageSettings: true }
   },
   {
     id: 'user',
-    name: '一般人員',
+    name: '一般使用者',
     permissions: { manageUsers: false, viewAllData: false, manageSettings: false }
   }
 ];
 
 export const defaultFormFields: FormField[] = [
-  { id: 'clean', label: '座位是否已乾淨', enabled: true, requiresRemark: false },
-  { id: 'trash', label: '垃圾清空', enabled: true, requiresRemark: false },
-  { id: 'key', label: '房間鑰匙', enabled: true, requiresRemark: false },
-  { id: 'damage', label: '有無損毀', enabled: true, requiresRemark: true }
+  { id: 'clean', label: '周圍環境清空且乾淨', enabled: true, requiresRemark: false },
+  { id: 'trash', label: '垃圾已清理', enabled: true, requiresRemark: false },
+  { id: 'key', label: '鑰匙已繳回', enabled: true, requiresRemark: false },
+  { id: 'damage', label: '設施設備損壞', enabled: true, requiresRemark: true }
 ];
 
 export const getRoles = async (): Promise<RoleGroup[]> => {
@@ -51,7 +76,6 @@ export const getRoles = async (): Promise<RoleGroup[]> => {
       return docSnap.data().groups as RoleGroup[];
     }
     try {
-      // Initialize if not exists
       await setDoc(docRef, { groups: defaultRoles });
     } catch (e) {
       console.warn("Failed to write default roles", e);
@@ -67,15 +91,14 @@ export const saveRoles = async (groups: RoleGroup[]) => {
   await setDoc(doc(db, 'settings', 'roles'), { groups });
 };
 
-export const getFormFields = async (): Promise<FormField[]> => {
+export const getFormFields = async (building: string = '毅志'): Promise<FormField[]> => {
   try {
-    const docRef = doc(db, 'settings', 'form');
+    const docRef = doc(db, 'settings', `form_${building}`);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return docSnap.data().fields as FormField[];
     }
     try {
-      // Initialize if not exists
       await setDoc(docRef, { fields: defaultFormFields });
     } catch (e) {
       console.warn("Failed to write default form fields", e);
@@ -87,6 +110,34 @@ export const getFormFields = async (): Promise<FormField[]> => {
   }
 };
 
-export const saveFormFields = async (fields: FormField[]) => {
-  await setDoc(doc(db, 'settings', 'form'), { fields });
+export const saveFormFields = async (building: string, fields: FormField[]) => {
+  await setDoc(doc(db, 'settings', `form_${building}`), { fields });
+};
+
+export interface BuildingConfig {
+  totalPeople: number;
+  staffCount: number;
+}
+
+export const defaultBuildingConfig: BuildingConfig = {
+  totalPeople: 704, // e.g. for 毅志
+  staffCount: 15
+};
+
+export const getBuildingConfig = async (building: string): Promise<BuildingConfig> => {
+  try {
+    const docRef = doc(db, 'settings', `config_${building}`);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return docSnap.data() as BuildingConfig;
+    }
+    return defaultBuildingConfig;
+  } catch (error) {
+    console.warn("Error fetching building config", error);
+    return defaultBuildingConfig;
+  }
+};
+
+export const saveBuildingConfig = async (building: string, config: BuildingConfig) => {
+  await setDoc(doc(db, 'settings', `config_${building}`), config);
 };
