@@ -4,6 +4,8 @@ import { db } from '../firebase';
 import { Package, MapPin, Clock, Trash2, Pencil, Check, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
+type TimestampLike = { toDate?: () => Date } | null | undefined;
+
 export interface LuggageRecord {
   id: string;
   qrId: string;
@@ -13,9 +15,8 @@ export interface LuggageRecord {
   checkerName?: string | null;
   conditions?: Record<string, boolean>;
   remarks?: Record<string, string>;
-  scannedAt: any;
+  scannedAt: TimestampLike;
   pieceCount?: number;
-  synced: boolean;
 }
 
 import { getFormFields, type FormField } from '../services/settings';
@@ -104,9 +105,13 @@ export function History() {
     }
   };
 
-  const formatTime = (timestamp: any) => {
+  const formatTime = (timestamp: TimestampLike) => {
     if (!timestamp) return '尚未同步';
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const date =
+      typeof timestamp === 'object' && 'toDate' in timestamp && typeof timestamp.toDate === 'function'
+        ? timestamp.toDate()
+        : null;
+    if (!date) return '尚未同步';
     return new Intl.DateTimeFormat('zh-TW', {
       month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     }).format(date);

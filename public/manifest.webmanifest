@@ -1,0 +1,7 @@
+{
+  "name": "ASD",
+  "short_name": "ASD",
+  "display": "browser",
+  "start_url": "/",
+  "scope": "/"
+}
