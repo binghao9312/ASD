@@ -15,7 +15,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { cn } from '../components/Layout';
-import { getFormFields, type FormField } from '../services/settings';
+import { getBuildingConfig, getDefaultBuildingConfig, getFormFields, type FormField } from '../services/settings';
 import type { LuggageRecord } from './History';
 
 type ScanMode = 'register' | 'lookup';
@@ -86,11 +86,13 @@ export function Scan() {
   const [roomNumber, setRoomNumber] = useState('');
   const [building, setBuilding] = useState<string | null>(null);
   const [pieceCount, setPieceCount] = useState<number | ''>(3);
+  const [pieceLimit, setPieceLimit] = useState(getDefaultBuildingConfig(DEFAULT_BUILDING).luggageLimit);
   const [isScanning, setIsScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupRecords, setLookupRecords] = useState<LuggageRecord[] | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const [formFields, setFormFields] = useState<FormField[]>([]);
@@ -113,8 +115,9 @@ export function Scan() {
   useEffect(() => {
     if (!building) return;
 
-    getFormFields(building).then((fields) => {
+    Promise.all([getFormFields(building), getBuildingConfig(building)]).then(([fields, config]) => {
       setFormFields(fields);
+      setPieceLimit(config.luggageLimit);
       resetInspectionFields(fields);
     });
   }, [building]);
@@ -209,22 +212,22 @@ export function Scan() {
 
   const handleRoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.trim().toUpperCase();
+    const nextBuilding = val ? validateRoom(val) : null;
     setRoomNumber(val);
-    setBuilding(val ? validateRoom(val) : null);
+    setBuilding(nextBuilding);
+    if (!nextBuilding) {
+      setPieceLimit(getDefaultBuildingConfig(DEFAULT_BUILDING).luggageLimit);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!qrId.trim()) {
-      setMessage({ type: 'error', text: '請先掃描貼紙 QR Code' });
-      return;
-    }
     if (!building) {
       setMessage({ type: 'error', text: '請輸入有效的房床號' });
       return;
     }
-    if (typeof pieceCount !== 'number' || pieceCount < 0 || pieceCount > 5) {
-      setMessage({ type: 'error', text: '行李件數必須在 0 到 5 件之間' });
+    if (typeof pieceCount !== 'number' || pieceCount < 0 || pieceCount > pieceLimit) {
+      setMessage({ type: 'error', text: `行李件數必須在 0 到 ${pieceLimit} 件之間` });
       return;
     }
 
@@ -235,8 +238,15 @@ export function Scan() {
       }
     }
 
+    setMessage(null);
+    setConfirmOpen(true);
+  };
+
+  const submitRegistration = async () => {
+    if (!building || typeof pieceCount !== 'number') return;
     setLoading(true);
     setMessage(null);
+    setConfirmOpen(false);
 
     try {
       await addDoc(collection(db, 'luggages'), {
@@ -256,6 +266,7 @@ export function Scan() {
       setRoomNumber('');
       setBuilding(null);
       setPieceCount(3);
+      setPieceLimit(getDefaultBuildingConfig(DEFAULT_BUILDING).luggageLimit);
       resetInspectionFields(formFields);
     } catch (error) {
       console.error('Error adding luggage:', error);
@@ -266,6 +277,12 @@ export function Scan() {
   };
 
   const latestLookupRecord = lookupRecords?.[0];
+  const selectedInspectionItems = formFields
+    .filter((field) => field.enabled && conditions[field.id])
+    .map((field) => ({
+      label: field.label,
+      remark: remarks[field.id]?.trim(),
+    }));
 
   return (
     <div className="space-y-6">
@@ -434,7 +451,7 @@ export function Scan() {
                 <input
                   type="number"
                   min="0"
-                  max="5"
+                  max={pieceLimit}
                   value={pieceCount}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -442,11 +459,14 @@ export function Scan() {
                   }}
                   className="input-styled"
                 />
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {building ? `${building} 上限 ${pieceLimit} 件，可填 0 件` : '請先輸入房床號以套用棟別上限'}
+                </p>
               </div>
 
               <button
                 type="submit"
-                disabled={!qrId.trim() || !building || loading}
+                disabled={!building || loading}
                 className="btn-primary disabled:opacity-50 disabled:active:scale-100"
               >
                 {loading ? '登記中...' : '送出登記'}
@@ -524,6 +544,62 @@ export function Scan() {
               這張貼紙共有 {lookupRecords.length} 筆登記紀錄，畫面顯示最新一筆。
             </div>
           )}
+        </div>
+      )}
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
+            <div className="mb-4">
+              <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">DOUBLE CHECK</h3>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">請確認這筆登記資料。</p>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
+              {[
+                ['QR Code', qrId.trim() || '未輸入'],
+                ['房床號', roomNumber],
+                ['棟別', building || '未辨識'],
+                ['行李件數', `${pieceCount || 0} 件`],
+              ].map(([label, value]) => (
+                <div key={label} className="grid grid-cols-[5rem_1fr] gap-3">
+                  <span className="text-slate-500 dark:text-slate-400">{label}</span>
+                  <span className="font-semibold text-slate-900 dark:text-slate-100">{value}</span>
+                </div>
+              ))}
+
+              <div className="border-t border-slate-200 pt-2 dark:border-slate-800">
+                <div className="grid grid-cols-[5rem_1fr] gap-3">
+                  <span className="text-slate-500 dark:text-slate-400">檢查項目</span>
+                  <div className="space-y-1 font-semibold text-slate-900 dark:text-slate-100">
+                    {selectedInspectionItems.length > 0 ? (
+                      selectedInspectionItems.map((item) => (
+                        <div key={item.label}>
+                          {item.label}
+                          {item.remark && (
+                            <span className="ml-1 font-normal text-slate-500 dark:text-slate-400">
+                              ({item.remark})
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <span>無</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setConfirmOpen(false)} disabled={loading} className="btn-secondary w-auto px-4 py-2">
+                取消
+              </button>
+              <button type="button" onClick={submitRegistration} disabled={loading} className="btn-primary w-auto px-4 py-2">
+                {loading ? '送出中...' : '確認送出'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

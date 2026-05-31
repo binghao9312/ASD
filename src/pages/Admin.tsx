@@ -69,15 +69,17 @@ export function Admin() {
               <ListChecks className="w-4 h-4" />
               表單
             </button>
-            <button
-              onClick={() => setActiveTab('buildings')}
-              className={`flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'buildings' ? 'bg-primary-50 dark:bg-slate-800 text-primary-600 dark:text-primary-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
-              }`}
-            >
-              <Building className="w-4 h-4" />
-              棟別
-            </button>
+            {isSuper && (
+              <button
+                onClick={() => setActiveTab('buildings')}
+                className={`flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+                  activeTab === 'buildings' ? 'bg-primary-50 dark:bg-slate-800 text-primary-600 dark:text-primary-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                }`}
+              >
+                <Building className="w-4 h-4" />
+                棟別
+              </button>
+            )}
           </>
         )}
       </div>
@@ -87,7 +89,7 @@ export function Admin() {
         {activeTab === 'users' && <AdminUsers />}
         {activeTab === 'roles' && canManageSettings && <AdminRoles />}
         {activeTab === 'form' && canManageSettings && <AdminForm userBuilding={userData?.building || '毅志'} isSuper={isSuper} />}
-        {activeTab === 'buildings' && canManageSettings && <AdminBuildings />}
+        {activeTab === 'buildings' && isSuper && <AdminBuildings />}
       </div>
     </div>
   );

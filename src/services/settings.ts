@@ -117,27 +117,70 @@ export const saveFormFields = async (building: string, fields: FormField[]) => {
 export interface BuildingConfig {
   totalPeople: number;
   staffCount: number;
+  luggageLimit: number;
 }
 
-export const defaultBuildingConfig: BuildingConfig = {
-  totalPeople: 704, // e.g. for 毅志
-  staffCount: 15
+export const buildings = ['毅志', '弘德', '慧樓'] as const;
+export type BuildingName = (typeof buildings)[number];
+
+export const defaultBuildingConfigs: Record<BuildingName, BuildingConfig> = {
+  '毅志': { totalPeople: 704, staffCount: 15, luggageLimit: 5 },
+  '弘德': { totalPeople: 320, staffCount: 10, luggageLimit: 5 },
+  '慧樓': { totalPeople: 240, staffCount: 8, luggageLimit: 6 },
+};
+
+export const getDefaultBuildingConfig = (building: string): BuildingConfig => {
+  return defaultBuildingConfigs[building as BuildingName] ?? defaultBuildingConfigs['毅志'];
 };
 
 export const getBuildingConfig = async (building: string): Promise<BuildingConfig> => {
+  const defaults = getDefaultBuildingConfig(building);
   try {
     const docRef = doc(db, 'settings', `config_${building}`);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data() as BuildingConfig;
+      return { ...defaults, ...(docSnap.data() as Partial<BuildingConfig>) };
     }
-    return defaultBuildingConfig;
+    return defaults;
   } catch (error) {
     console.warn("Error fetching building config", error);
-    return defaultBuildingConfig;
+    return defaults;
   }
 };
 
 export const saveBuildingConfig = async (building: string, config: BuildingConfig) => {
   await setDoc(doc(db, 'settings', `config_${building}`), config);
+};
+
+export interface DataValiditySettings {
+  startDate: string;
+  endDate: string;
+}
+
+export const defaultDataValiditySettings: DataValiditySettings = {
+  startDate: '',
+  endDate: '',
+};
+
+export const getDataValiditySettings = async (): Promise<DataValiditySettings> => {
+  try {
+    const docRef = doc(db, 'settings', 'dataValidity');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      const data = docSnap.data() as Partial<DataValiditySettings> & { validDays?: number };
+      return {
+        ...defaultDataValiditySettings,
+        startDate: data.startDate ?? '',
+        endDate: data.endDate ?? '',
+      };
+    }
+    return defaultDataValiditySettings;
+  } catch (error) {
+    console.warn("Error fetching data validity settings", error);
+    return defaultDataValiditySettings;
+  }
+};
+
+export const saveDataValiditySettings = async (settings: DataValiditySettings) => {
+  await setDoc(doc(db, 'settings', 'dataValidity'), settings);
 };

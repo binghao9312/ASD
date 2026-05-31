@@ -19,7 +19,25 @@ export interface LuggageRecord {
   pieceCount?: number;
 }
 
-import { getFormFields, type FormField } from '../services/settings';
+import { getBuildingConfig, getDataValiditySettings, getFormFields, type BuildingConfig, type FormField } from '../services/settings';
+
+const getRecordMillis = (record: LuggageRecord) => record.scannedAt?.toDate?.()?.getTime() ?? 0;
+
+const getDateStartMillis = (date: string) => (date ? new Date(`${date}T00:00:00`).getTime() : null);
+const getDateEndMillis = (date: string) => (date ? new Date(`${date}T23:59:59.999`).getTime() : null);
+
+const isWithinValidityRange = (record: LuggageRecord, startDate: string, endDate: string) => {
+  if (!startDate && !endDate) return true;
+  const recordMillis = getRecordMillis(record);
+  if (!recordMillis) return false;
+
+  const startMillis = getDateStartMillis(startDate);
+  const endMillis = getDateEndMillis(endDate);
+
+  if (startMillis !== null && recordMillis < startMillis) return false;
+  if (endMillis !== null && recordMillis > endMillis) return false;
+  return true;
+};
 
 export function History() {
   const { userData } = useAuth();
@@ -28,17 +46,27 @@ export function History() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editPieceCount, setEditPieceCount] = useState<number | ''>('');
   const [formFields, setFormFields] = useState<FormField[]>([]);
+  const [buildingConfigs, setBuildingConfigs] = useState<Record<string, BuildingConfig>>({});
+  const [dataStartDate, setDataStartDate] = useState('');
+  const [dataEndDate, setDataEndDate] = useState('');
 
   useEffect(() => {
     Promise.all([
       getFormFields('毅志'),
       getFormFields('弘德'),
-      getFormFields('慧樓')
-    ]).then(([fields1, fields2, fields3]) => {
+      getFormFields('慧樓'),
+      getBuildingConfig('毅志'),
+      getBuildingConfig('弘德'),
+      getBuildingConfig('慧樓'),
+      getDataValiditySettings(),
+    ]).then(([fields1, fields2, fields3, config1, config2, config3, dataValidity]) => {
       const allFields = [...fields1, ...fields2, ...fields3];
       // remove duplicates by id if any
       const uniqueFields = Array.from(new Map(allFields.map(f => [f.id, f])).values());
       setFormFields(uniqueFields);
+      setBuildingConfigs({ '毅志': config1, '弘德': config2, '慧樓': config3 });
+      setDataStartDate(dataValidity.startDate);
+      setDataEndDate(dataValidity.endDate);
     });
   }, []);
 
@@ -66,7 +94,8 @@ export function History() {
         id: d.id,
         ...d.data()
       })) as LuggageRecord[];
-      setRecords(data);
+      const validData = data.filter(record => isWithinValidityRange(record, dataStartDate, dataEndDate));
+      setRecords(validData);
       setLoading(false);
     }, (error) => {
       console.error("Error fetching history: ", error);
@@ -74,7 +103,7 @@ export function History() {
     });
 
     return () => unsubscribe();
-  }, [userData]);
+  }, [userData, dataStartDate, dataEndDate]);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('確定要刪除這筆紀錄嗎？此動作無法復原。')) return;
@@ -88,12 +117,14 @@ export function History() {
 
   const startEdit = (record: LuggageRecord) => {
     setEditingId(record.id);
-    setEditPieceCount(record.pieceCount || 3);
+    setEditPieceCount(record.pieceCount ?? 3);
   };
 
   const saveEdit = async (id: string) => {
-    if (typeof editPieceCount !== 'number' || editPieceCount < 1 || editPieceCount > 5) {
-      alert('行李數量必須是 1~5 件');
+    const record = records.find(item => item.id === id);
+    const limit = record?.building ? buildingConfigs[record.building]?.luggageLimit ?? 5 : 5;
+    if (typeof editPieceCount !== 'number' || editPieceCount < 0 || editPieceCount > limit) {
+      alert(`行李數量必須是 0~${limit} 件`);
       return;
     }
     try {
@@ -136,7 +167,7 @@ export function History() {
             <div key={record.id} className="glass-card p-4 flex flex-col gap-3">
               <div className="flex justify-between items-start">
                 <div>
-                  <span className="font-mono font-bold text-slate-800 text-lg">{record.qrId}</span>
+                  <span className="font-mono font-bold text-slate-800 text-lg">{record.qrId || '未輸入 QR'}</span>
                   <div className="text-xs text-slate-400 flex items-center gap-1 mt-1">
                     <Clock className="w-3 h-3" />
                     {formatTime(record.scannedAt)}
@@ -190,8 +221,8 @@ export function History() {
                     {editingId === record.id ? (
                       <input
                         type="number"
-                        min="1"
-                        max="5"
+                        min="0"
+                        max={buildingConfigs[record.building]?.luggageLimit ?? 5}
                         value={editPieceCount}
                         onChange={(e) => {
                           const val = e.target.value;
@@ -200,7 +231,7 @@ export function History() {
                         className="w-12 ml-1 px-1 py-0.5 border border-primary-300 rounded text-sm text-slate-800 text-center"
                       />
                     ) : (
-                      <span className="font-semibold text-slate-800 dark:text-slate-100 ml-1">{record.pieceCount || 3} 件</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-100 ml-1">{record.pieceCount ?? 3} 件</span>
                     )}
                   </div>
                 </div>

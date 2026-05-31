@@ -3,16 +3,49 @@ import { collection, query, getDocs, updateDoc, doc, deleteDoc, orderBy } from '
 import { db } from '../../firebase';
 import { Database, Check, X, Trash2, Package, Pencil } from 'lucide-react';
 import type { LuggageRecord } from '../History';
-import { getFormFields, type FormField, getBuildingConfig, saveBuildingConfig, type BuildingConfig } from '../../services/settings';
+import {
+  getDataValiditySettings,
+  getFormFields,
+  type FormField,
+  getBuildingConfig,
+  saveBuildingConfig,
+  saveDataValiditySettings,
+  type BuildingConfig,
+} from '../../services/settings';
+
+const getRecordMillis = (record: LuggageRecord) => record.scannedAt?.toDate?.()?.getTime() ?? 0;
+
+const getDateStartMillis = (date: string) => (date ? new Date(`${date}T00:00:00`).getTime() : null);
+const getDateEndMillis = (date: string) => (date ? new Date(`${date}T23:59:59.999`).getTime() : null);
+
+const isWithinValidityRange = (record: LuggageRecord, startDate: string, endDate: string) => {
+  if (!startDate && !endDate) return true;
+  const recordMillis = getRecordMillis(record);
+  if (!recordMillis) return false;
+
+  const startMillis = getDateStartMillis(startDate);
+  const endMillis = getDateEndMillis(endDate);
+
+  if (startMillis !== null && recordMillis < startMillis) return false;
+  if (endMillis !== null && recordMillis > endMillis) return false;
+  return true;
+};
 
 export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
   const [luggages, setLuggages] = useState<LuggageRecord[]>([]);
   const [configs, setConfigs] = useState<Record<string, BuildingConfig>>({
-    '毅志': { totalPeople: 704, staffCount: 15 },
-    '弘德': { totalPeople: 320, staffCount: 10 },
-    '慧樓': { totalPeople: 240, staffCount: 8 }
+    '毅志': { totalPeople: 704, staffCount: 15, luggageLimit: 5 },
+    '弘德': { totalPeople: 320, staffCount: 10, luggageLimit: 5 },
+    '慧樓': { totalPeople: 240, staffCount: 8, luggageLimit: 6 }
   });
   const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [dataStartDate, setDataStartDate] = useState('');
+  const [dataEndDate, setDataEndDate] = useState('');
+
+  const activeLuggages = useMemo(
+    () => luggages.filter(record => isWithinValidityRange(record, dataStartDate, dataEndDate)),
+    [luggages, dataStartDate, dataEndDate],
+  );
 
   const buildingStats = useMemo(() => {
     const stats: Record<string, { total: number; checkedBeds: Set<unknown>; target: number }> = {};
@@ -22,13 +55,13 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
       stats[b] = { total: conf.totalPeople, target: conf.totalPeople - conf.staffCount, checkedBeds: new Set() };
     }
 
-    luggages.forEach(l => {
+    activeLuggages.forEach(l => {
       if (stats[l.building] && l.ownerId) {
         stats[l.building].checkedBeds.add(l.ownerId);
       }
     });
     return stats;
-  }, [luggages, configs]);
+  }, [activeLuggages, configs]);
 
 
   const [loading, setLoading] = useState(true);
@@ -37,17 +70,15 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
   const [editPieceCount, setEditPieceCount] = useState<number | ''>('');
   const [formFields, setFormFields] = useState<FormField[]>([]);
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
+    await Promise.resolve();
     setLoading(true);
     try {
       const [
         luggagesSnap, 
         fields1, fields2, fields3,
-        conf1, conf2, conf3
+        conf1, conf2, conf3,
+        dataValidity,
       ] = await Promise.all([
         getDocs(query(collection(db, 'luggages'), orderBy('scannedAt', 'desc'))),
         getFormFields('毅志'),
@@ -55,7 +86,8 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
         getFormFields('慧樓'),
         getBuildingConfig('毅志'),
         getBuildingConfig('弘德'),
-        getBuildingConfig('慧樓')
+        getBuildingConfig('慧樓'),
+        getDataValiditySettings(),
       ]);
       const allFields = [...fields1, ...fields2, ...fields3];
       const uniqueFields = Array.from(new Map(allFields.map(f => [f.id, f])).values());
@@ -70,44 +102,54 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
         '弘德': conf2,
         '慧樓': conf3
       });
+      setDataStartDate(dataValidity.startDate);
+      setDataEndDate(dataValidity.endDate);
     } catch (error) {
       console.error("Error fetching luggages:", error);
     }
     setLoading(false);
   };
 
+  useEffect(() => {
+    void (async () => {
+      await fetchData();
+    })();
+  }, []);
+
   const handleDeleteLuggage = async (id: string) => {
     if (!window.confirm('確定要刪除這筆資料嗎？此操作不可恢復。')) return;
     try {
       await deleteDoc(doc(db, 'luggages', id));
       setLuggages(luggages.filter(l => l.id !== id));
-    } catch (error) {
+    } catch {
       alert("刪除失敗");
     }
   };
 
   const startEdit = (record: LuggageRecord) => {
     setEditingId(record.id);
-    setEditPieceCount(record.pieceCount || 3);
+    setEditPieceCount(record.pieceCount ?? 3);
   };
 
   const saveEdit = async (id: string) => {
-    if (typeof editPieceCount !== 'number' || editPieceCount < 0 || editPieceCount > 5) {
-      alert('行李件數必須在 0 到 5 之間');
+    const record = luggages.find(l => l.id === id);
+    const limit = record?.building ? configs[record.building]?.luggageLimit ?? 5 : 5;
+    if (typeof editPieceCount !== 'number' || editPieceCount < 0 || editPieceCount > limit) {
+      alert(`行李件數必須在 0 到 ${limit} 之間`);
       return;
     }
     try {
       await updateDoc(doc(db, 'luggages', id), { pieceCount: editPieceCount });
       setLuggages(luggages.map(l => l.id === id ? { ...l, pieceCount: editPieceCount } : l));
       setEditingId(null);
-    } catch (err) {
+    } catch {
       alert('更新失敗');
     }
   };
 
-  const filteredLuggages = filterBuilding === 'all' 
-    ? luggages 
-    : luggages.filter(l => l.building === filterBuilding);
+  const filteredLuggages = filterBuilding === 'all'
+    ? activeLuggages
+    : activeLuggages.filter(l => l.building === filterBuilding);
 
   if (loading) return <div className="text-center py-10 text-slate-500">載入中...</div>;
 
@@ -140,13 +182,62 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                 onClick={() => setIsEditingConfig(!isEditingConfig)}
                 className="text-xs text-primary-600 hover:text-primary-700 flex items-center gap-1"
               >
-                <Pencil className="w-3 h-3" /> 設定人數
+                <Pencil className="w-3 h-3" /> 設定資料
               </button>
             )}
+          </div>
+          <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+            資料有效範圍：{dataStartDate || dataEndDate ? `${dataStartDate || '最早'} 到 ${dataEndDate || '最新'}` : '不限制'}
           </div>
           
           {isEditingConfig && isSuper && (
             <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-lg border border-slate-200 dark:border-slate-700 mb-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="space-y-2 sm:col-span-3">
+                <div className="font-bold text-sm">資料有效時間範圍</div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <label className="text-xs">
+                    起始日期
+                    <input
+                      type="date"
+                      value={dataStartDate}
+                      onChange={(e) => setDataStartDate(e.target.value)}
+                      className="input-styled mt-1 py-1 text-xs"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    結束日期
+                    <input
+                      type="date"
+                      value={dataEndDate}
+                      onChange={(e) => setDataEndDate(e.target.value)}
+                      className="input-styled mt-1 py-1 text-xs"
+                    />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">兩格都空白代表不限制；只填其中一格則只限制單邊。</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={async () => {
+                      await saveDataValiditySettings({ startDate: dataStartDate, endDate: dataEndDate });
+                      alert('資料有效時間範圍已儲存');
+                    }}
+                    className="btn-primary py-1 px-2 w-full text-xs"
+                  >
+                    儲存有效時間範圍
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setDataStartDate('');
+                      setDataEndDate('');
+                      await saveDataValiditySettings({ startDate: '', endDate: '' });
+                      alert('資料有效時間範圍已清除');
+                    }}
+                    className="btn-secondary py-1 px-2 w-full text-xs"
+                  >
+                    清除限制
+                  </button>
+                </div>
+              </div>
               {['毅志', '弘德', '慧樓'].map(b => (
                 <div key={'edit-' + b} className="space-y-2">
                   <div className="font-bold text-sm">{b}</div>
@@ -165,6 +256,16 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                       type="number" 
                       value={configs[b]?.staffCount || 0}
                       onChange={(e) => setConfigs({ ...configs, [b]: { ...configs[b], staffCount: Number(e.target.value) }})}
+                      className="input-styled py-1 text-xs"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs w-16">行李上限</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={configs[b]?.luggageLimit ?? 5}
+                      onChange={(e) => setConfigs({ ...configs, [b]: { ...configs[b], luggageLimit: Number(e.target.value) }})}
                       className="input-styled py-1 text-xs"
                     />
                   </div>
@@ -243,7 +344,9 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
               
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs font-mono">{record.qrId}</span>
+                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-xs font-mono">
+                    {record.qrId || '未輸入 QR'}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                   <Package className="w-4 h-4 text-slate-400" />
@@ -251,7 +354,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                     <input
                       type="number"
                       min="0"
-                      max="5"
+                      max={configs[record.building]?.luggageLimit ?? 5}
                       value={editPieceCount}
                       onChange={(e) => {
                         const val = e.target.value;
@@ -260,7 +363,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                       className="w-12 px-1 py-0.5 border border-primary-300 rounded text-sm text-slate-800 text-center"
                     />
                   ) : (
-                    <span>{record.pieceCount || 3} 件</span>
+                    <span>{record.pieceCount ?? 3} 件</span>
                   )}
                 </div>
 
