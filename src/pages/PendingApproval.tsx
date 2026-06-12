@@ -1,8 +1,13 @@
 import { Clock, LogOut } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 export function PendingApproval() {
-  const { logout } = useAuth();
+  const { logout, userData } = useAuth();
+
+  if (userData?.status === 'approved') {
+    return <Navigate to="/scan" replace />;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">

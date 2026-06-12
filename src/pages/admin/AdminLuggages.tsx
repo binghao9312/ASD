@@ -1,8 +1,9 @@
 ﻿import { useState, useEffect, useMemo } from 'react';
-import { collection, query, getDocs, updateDoc, doc, deleteDoc, orderBy } from 'firebase/firestore';
+import { collection, query, updateDoc, doc, deleteDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { Database, Check, X, Trash2, Package, Pencil } from 'lucide-react';
 import type { LuggageRecord } from '../History';
+import { getDateRangeConstraints, getDateRangeLabel, getTimestampMillis, isTimestampWithinDateRange } from '../../services/dateRange';
 import {
   getDataValiditySettings,
   getFormFields,
@@ -13,25 +14,7 @@ import {
   type BuildingConfig,
 } from '../../services/settings';
 
-const getRecordMillis = (record: LuggageRecord) => record.scannedAt?.toDate?.()?.getTime() ?? 0;
-
-const getDateStartMillis = (date: string) => (date ? new Date(`${date}T00:00:00`).getTime() : null);
-const getDateEndMillis = (date: string) => (date ? new Date(`${date}T23:59:59.999`).getTime() : null);
-
-const isWithinValidityRange = (record: LuggageRecord, startDate: string, endDate: string) => {
-  if (!startDate && !endDate) return true;
-  const recordMillis = getRecordMillis(record);
-  if (!recordMillis) return false;
-
-  const startMillis = getDateStartMillis(startDate);
-  const endMillis = getDateEndMillis(endDate);
-
-  if (startMillis !== null && recordMillis < startMillis) return false;
-  if (endMillis !== null && recordMillis > endMillis) return false;
-  return true;
-};
-
-export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
+export function AdminLuggages({ isSuper, canEditAll = false }: { isSuper?: boolean; canEditAll?: boolean }) {
   const [luggages, setLuggages] = useState<LuggageRecord[]>([]);
   const [configs, setConfigs] = useState<Record<string, BuildingConfig>>({
     '毅志': { totalPeople: 704, staffCount: 15, luggageLimit: 5 },
@@ -43,7 +26,9 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
   const [dataEndDate, setDataEndDate] = useState('');
 
   const activeLuggages = useMemo(
-    () => luggages.filter(record => isWithinValidityRange(record, dataStartDate, dataEndDate)),
+    () => luggages
+      .filter(record => isTimestampWithinDateRange(record.scannedAt, dataStartDate, dataEndDate))
+      .sort((a, b) => getTimestampMillis(b.scannedAt) - getTimestampMillis(a.scannedAt)),
     [luggages, dataStartDate, dataEndDate],
   );
 
@@ -75,12 +60,10 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
     setLoading(true);
     try {
       const [
-        luggagesSnap, 
         fields1, fields2, fields3,
         conf1, conf2, conf3,
         dataValidity,
       ] = await Promise.all([
-        getDocs(query(collection(db, 'luggages'), orderBy('scannedAt', 'desc'))),
         getFormFields('毅志'),
         getFormFields('弘德'),
         getFormFields('慧樓'),
@@ -91,11 +74,6 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
       ]);
       const allFields = [...fields1, ...fields2, ...fields3];
       const uniqueFields = Array.from(new Map(allFields.map(f => [f.id, f])).values());
-      const luggagesData = luggagesSnap.docs.map(d => ({
-        id: d.id,
-        ...d.data()
-      })) as LuggageRecord[];
-      setLuggages(luggagesData);
       setFormFields(uniqueFields);
       setConfigs({
         '毅志': conf1,
@@ -115,6 +93,29 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
       await fetchData();
     })();
   }, []);
+
+  useEffect(() => {
+    const luggagesQuery = query(
+      collection(db, 'luggages'),
+      ...getDateRangeConstraints(dataStartDate, dataEndDate),
+      orderBy('scannedAt', 'desc'),
+      limit(300),
+    );
+
+    const unsubscribe = onSnapshot(luggagesQuery, (snapshot) => {
+      const luggagesData = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      })) as LuggageRecord[];
+      setLuggages(luggagesData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error listening to luggages:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [dataStartDate, dataEndDate]);
 
   const handleDeleteLuggage = async (id: string) => {
     if (!window.confirm('確定要刪除這筆資料嗎？此操作不可恢復。')) return;
@@ -187,7 +188,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
             )}
           </div>
           <div className="mb-2 text-xs text-slate-500 dark:text-slate-400">
-            資料有效範圍：{dataStartDate || dataEndDate ? `${dataStartDate || '最早'} 到 ${dataEndDate || '最新'}` : '不限制'}
+            資料有效範圍：{getDateRangeLabel(dataStartDate, dataEndDate)}
           </div>
           
           {isEditingConfig && isSuper && (
@@ -219,6 +220,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                   <button
                     onClick={async () => {
                       await saveDataValiditySettings({ startDate: dataStartDate, endDate: dataEndDate });
+                      await fetchData();
                       alert('資料有效時間範圍已儲存');
                     }}
                     className="btn-primary py-1 px-2 w-full text-xs"
@@ -230,6 +232,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                       setDataStartDate('');
                       setDataEndDate('');
                       await saveDataValiditySettings({ startDate: '', endDate: '' });
+                      await fetchData();
                       alert('資料有效時間範圍已清除');
                     }}
                     className="btn-secondary py-1 px-2 w-full text-xs"
@@ -319,27 +322,29 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                   </span>
                 </div>
                 
-                <div className="flex gap-1">
-                  {editingId === record.id ? (
-                    <>
-                      <button onClick={() => saveEdit(record.id!)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg">
-                        <Check className="w-5 h-5" />
-                      </button>
-                      <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
-                        <X className="w-5 h-5" />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button onClick={() => startEdit(record)} className="p-1.5 text-slate-400 hover:text-blue-500 rounded-lg">
-                        <Pencil className="w-5 h-5" />
-                      </button>
-                      <button onClick={() => handleDeleteLuggage(record.id!)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg">
-                        <Trash2 className="w-5 h-5" />
-                      </button>
-                    </>
-                  )}
-                </div>
+                {canEditAll && (
+                  <div className="flex gap-1">
+                    {editingId === record.id ? (
+                      <>
+                        <button onClick={() => saveEdit(record.id!)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg">
+                          <Check className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                          <X className="w-5 h-5" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => startEdit(record)} className="p-1.5 text-slate-400 hover:text-blue-500 rounded-lg">
+                          <Pencil className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => handleDeleteLuggage(record.id!)} className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="space-y-2">
@@ -350,7 +355,7 @@ export function AdminLuggages({ isSuper }: { isSuper?: boolean }) {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
                   <Package className="w-4 h-4 text-slate-400" />
-                  {editingId === record.id ? (
+                  {canEditAll && editingId === record.id ? (
                     <input
                       type="number"
                       min="0"

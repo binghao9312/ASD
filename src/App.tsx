@@ -1,20 +1,28 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import { Layout } from './components/Layout';
-import { Login } from './pages/Login';
-import { Scan } from './pages/Scan';
-import { History } from './pages/History';
-import { PendingApproval } from './pages/PendingApproval';
-import { Admin } from './pages/Admin';
-import { SetupProfile } from './pages/SetupProfile';
+import { canPotentiallyAccessAdmin } from './services/permissions';
+
+const Login = lazy(() => import('./pages/Login').then((module) => ({ default: module.Login })));
+const Scan = lazy(() => import('./pages/Scan').then((module) => ({ default: module.Scan })));
+const History = lazy(() => import('./pages/History').then((module) => ({ default: module.History })));
+const PendingApproval = lazy(() =>
+  import('./pages/PendingApproval').then((module) => ({ default: module.PendingApproval })),
+);
+const Admin = lazy(() => import('./pages/Admin').then((module) => ({ default: module.Admin })));
+const SetupProfile = lazy(() => import('./pages/SetupProfile').then((module) => ({ default: module.SetupProfile })));
+
+function PageLoader() {
+  return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500">載入中...</div>;
+}
 
 function RequireAuth({ children, requireAdmin = false, allowPending = false }: { children: React.ReactNode, requireAdmin?: boolean, allowPending?: boolean }) {
   const { user, userData, loading } = useAuth();
   const location = useLocation();
   
   if (loading || (user && !userData)) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-500">載入中...</div>;
+    return <PageLoader />;
   }
   
   if (!user) {
@@ -29,7 +37,7 @@ function RequireAuth({ children, requireAdmin = false, allowPending = false }: {
     return <Navigate to="/pending" replace />;
   }
 
-  if (requireAdmin && userData?.roleId !== 'superadmin' && userData?.roleId !== 'admin' && userData?.role !== 'admin') {
+  if (requireAdmin && !canPotentiallyAccessAdmin(userData)) {
     return <Navigate to="/scan" replace />;
   }
   
@@ -38,22 +46,24 @@ function RequireAuth({ children, requireAdmin = false, allowPending = false }: {
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/pending" element={
-        <RequireAuth allowPending={true}>
-          <PendingApproval />
-        </RequireAuth>
-      } />
-      <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
-        <Route index element={<Navigate to="/scan" replace />} />
-        <Route path="scan" element={<Scan />} />
-        <Route path="history" element={<History />} />
-        <Route path="setup" element={<SetupProfile />} />
-        <Route path="admin" element={<RequireAuth requireAdmin={true}><Admin /></RequireAuth>} />
-      </Route>
-      <Route path="*" element={<Navigate to="/scan" replace />} />
-    </Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/pending" element={
+          <RequireAuth allowPending={true}>
+            <PendingApproval />
+          </RequireAuth>
+        } />
+        <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
+          <Route index element={<Navigate to="/scan" replace />} />
+          <Route path="scan" element={<Scan />} />
+          <Route path="history" element={<History />} />
+          <Route path="setup" element={<SetupProfile />} />
+          <Route path="admin" element={<RequireAuth requireAdmin={true}><Admin /></RequireAuth>} />
+        </Route>
+        <Route path="*" element={<Navigate to="/scan" replace />} />
+      </Routes>
+    </Suspense>
   );
 }
 

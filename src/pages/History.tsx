@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { collection, query, orderBy, limit, onSnapshot, where, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Package, MapPin, Clock, Trash2, Pencil, Check, X } from 'lucide-react';
-import { useAuth } from '../hooks/useAuth';
+import { useAuth, type UserData } from '../hooks/useAuth';
+import { getDateRangeConstraints, getTimestampMillis, isTimestampWithinDateRange } from '../services/dateRange';
+import { getBuildingConfig, getDataValiditySettings, getFormFields, type BuildingConfig, type FormField } from '../services/settings';
 
 type TimestampLike = { toDate?: () => Date } | null | undefined;
 
@@ -19,28 +21,14 @@ export interface LuggageRecord {
   pieceCount?: number;
 }
 
-import { getBuildingConfig, getDataValiditySettings, getFormFields, type BuildingConfig, type FormField } from '../services/settings';
+const normalizeEmail = (email: string | null | undefined) => email?.trim().toLowerCase() ?? '';
 
-const getRecordMillis = (record: LuggageRecord) => record.scannedAt?.toDate?.()?.getTime() ?? 0;
-
-const getDateStartMillis = (date: string) => (date ? new Date(`${date}T00:00:00`).getTime() : null);
-const getDateEndMillis = (date: string) => (date ? new Date(`${date}T23:59:59.999`).getTime() : null);
-
-const isWithinValidityRange = (record: LuggageRecord, startDate: string, endDate: string) => {
-  if (!startDate && !endDate) return true;
-  const recordMillis = getRecordMillis(record);
-  if (!recordMillis) return false;
-
-  const startMillis = getDateStartMillis(startDate);
-  const endMillis = getDateEndMillis(endDate);
-
-  if (startMillis !== null && recordMillis < startMillis) return false;
-  if (endMillis !== null && recordMillis > endMillis) return false;
-  return true;
+const canViewAllHistory = (userData: UserData | null | undefined) => {
+  return userData?.role === 'admin' || userData?.roleId === 'admin' || userData?.roleId === 'superadmin';
 };
 
 export function History() {
-  const { userData } = useAuth();
+  const { user, userData } = useAuth();
   const [records, setRecords] = useState<LuggageRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -49,6 +37,7 @@ export function History() {
   const [buildingConfigs, setBuildingConfigs] = useState<Record<string, BuildingConfig>>({});
   const [dataStartDate, setDataStartDate] = useState('');
   const [dataEndDate, setDataEndDate] = useState('');
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -67,43 +56,78 @@ export function History() {
       setBuildingConfigs({ '毅志': config1, '弘德': config2, '慧樓': config3 });
       setDataStartDate(dataValidity.startDate);
       setDataEndDate(dataValidity.endDate);
+      setSettingsLoaded(true);
     });
   }, []);
 
   useEffect(() => {
-    if (!userData) return;
+    if (!userData || !settingsLoaded) return;
 
-    let q;
-    if (userData.role === 'admin') {
-      q = query(
-        collection(db, 'luggages'),
-        orderBy('scannedAt', 'desc'),
-        limit(50)
-      );
-    } else {
-      q = query(
-        collection(db, 'luggages'),
-        where('checkerEmail', '==', userData.email),
-        orderBy('scannedAt', 'desc'),
-        limit(20)
-      );
-    }
+    const userEmail = user?.email || userData.email;
+    if (!userEmail) return;
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const viewAll = canViewAllHistory(userData);
+    const recordsQuery = viewAll
+      ? query(
+        collection(db, 'luggages'),
+        ...getDateRangeConstraints(dataStartDate, dataEndDate),
+        orderBy('scannedAt', 'desc'),
+        limit(50),
+      )
+      : query(
+        collection(db, 'luggages'),
+        where('checkerEmail', '==', userEmail),
+        ...getDateRangeConstraints(dataStartDate, dataEndDate),
+        orderBy('scannedAt', 'desc'),
+        limit(20),
+      );
+
+    const setVisibleRecords = (data: LuggageRecord[]) => {
+      const visibleRecords = viewAll
+        ? data
+        : data
+          .filter(record => isTimestampWithinDateRange(record.scannedAt, dataStartDate, dataEndDate))
+          .sort((a, b) => getTimestampMillis(b.scannedAt) - getTimestampMillis(a.scannedAt))
+          .slice(0, 20);
+      setRecords(visibleRecords);
+      setLoading(false);
+    };
+
+    let fallbackUnsubscribe: (() => void) | undefined;
+    const unsubscribe = onSnapshot(recordsQuery, (snapshot) => {
       const data = snapshot.docs.map(d => ({
         id: d.id,
         ...d.data()
       })) as LuggageRecord[];
-      const validData = data.filter(record => isWithinValidityRange(record, dataStartDate, dataEndDate));
-      setRecords(validData);
-      setLoading(false);
+      setVisibleRecords(data);
     }, (error) => {
       console.error("Error fetching history: ", error);
-      setLoading(false);
+      if (viewAll || fallbackUnsubscribe) {
+        setLoading(false);
+        return;
+      }
+
+      fallbackUnsubscribe = onSnapshot(
+        query(collection(db, 'luggages'), where('checkerEmail', '==', userEmail), limit(100)),
+        (snapshot) => {
+          const data = snapshot.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          })) as LuggageRecord[];
+          setVisibleRecords(data);
+        },
+        (fallbackError) => {
+          console.error("Error fetching fallback history: ", fallbackError);
+          setLoading(false);
+        },
+      );
     });
 
-    return () => unsubscribe();
-  }, [userData, dataStartDate, dataEndDate]);
+    return () => {
+      unsubscribe();
+      if (fallbackUnsubscribe) fallbackUnsubscribe();
+    };
+  }, [user, userData, settingsLoaded, dataStartDate, dataEndDate]);
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('確定要刪除這筆紀錄嗎？此動作無法復原。')) return;
@@ -180,7 +204,7 @@ export function History() {
                   </div>
                   
                   {/* Action Buttons (Allowed for Admin or Owner) */}
-                  {(userData?.role === 'admin' || record.checkerEmail === userData?.email) && (
+                  {(canViewAllHistory(userData) || normalizeEmail(record.checkerEmail) === normalizeEmail(user?.email || userData?.email)) && (
                     <div className="flex gap-1">
                       {editingId === record.id ? (
                         <>

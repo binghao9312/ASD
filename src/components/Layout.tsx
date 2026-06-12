@@ -2,12 +2,8 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { LogOut, ScanLine, Clock, Building, Shield, Sun, Moon, UserCircle2 } from 'lucide-react';
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+import { canPotentiallyAccessAdmin } from '../services/permissions';
+import { cn } from '../utils/cn';
 
 export function Layout() {
   const { user, userData, logout } = useAuth();
@@ -42,7 +38,7 @@ export function Layout() {
     { name: '歷史紀錄', path: '/history', icon: Clock },
   ];
 
-  if (userData?.roleId === 'superadmin' || userData?.roleId === 'admin' || userData?.role === 'admin') {
+  if (canPotentiallyAccessAdmin(userData)) {
     navItems.push({ name: '管理後台', path: '/admin', icon: Shield });
   }
 

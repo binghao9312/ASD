@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { collection, addDoc, getDocs, query, serverTimestamp, where } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, serverTimestamp, where, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -14,9 +13,10 @@ import {
   Search,
   UserCheck,
 } from 'lucide-react';
-import { cn } from '../components/Layout';
+import { cn } from '../utils/cn';
 import { getBuildingConfig, getDefaultBuildingConfig, getFormFields, type FormField } from '../services/settings';
 import type { LuggageRecord } from './History';
+import type { Html5Qrcode } from 'html5-qrcode';
 
 type ScanMode = 'register' | 'lookup';
 type TimestampLike = { toDate?: () => Date; toMillis?: () => number } | Date | string | number | null | undefined;
@@ -142,7 +142,11 @@ export function Scan() {
     setMessage(null);
 
     try {
-      const snapshot = await getDocs(query(collection(db, 'luggages'), where('qrId', '==', normalizedQrId)));
+      const snapshot = await getDocs(query(
+        collection(db, 'luggages'),
+        where('qrId', '==', normalizedQrId),
+        limit(20),
+      ));
       const records = snapshot.docs
         .map((document) => ({ id: document.id, ...document.data() }) as LuggageRecord)
         .sort((a, b) => getRecordTime(b) - getRecordTime(a));
@@ -163,29 +167,32 @@ export function Scan() {
     setIsScanning(true);
     setMessage(null);
     setTimeout(() => {
-      const html5QrCode = new Html5Qrcode('qr-reader');
-      scannerRef.current = html5QrCode;
+      void (async () => {
+        try {
+          const { Html5Qrcode } = await import('html5-qrcode');
+          const html5QrCode = new Html5Qrcode('qr-reader');
+          scannerRef.current = html5QrCode;
 
-      html5QrCode
-        .start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
-          (decodedText) => {
-            setQrId(decodedText);
-            stopScanner();
-            if (mode === 'lookup') {
-              lookupByQrId(decodedText);
-            }
-          },
-          () => {
-            // Ignore scan errors while the camera is searching for a QR code.
-          },
-        )
-        .catch((err) => {
+          await html5QrCode.start(
+            { facingMode: 'environment' },
+            { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
+            (decodedText) => {
+              setQrId(decodedText);
+              stopScanner();
+              if (mode === 'lookup') {
+                lookupByQrId(decodedText);
+              }
+            },
+            () => {
+              // Ignore scan errors while the camera is searching for a QR code.
+            },
+          );
+        } catch (err) {
           console.error('Unable to start camera', err);
           setMessage({ type: 'error', text: '相機啟動失敗，請確認已給予權限。' });
           setIsScanning(false);
-        });
+        }
+      })();
     }, 100);
   };
 

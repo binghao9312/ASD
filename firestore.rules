@@ -1,33 +1,119 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function userEmail() {
+      return request.auth.token.email;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(userEmail());
+    }
+
+    function hasUserDoc() {
+      return signedIn() && exists(userPath());
+    }
+
+    function userData() {
+      return get(userPath()).data;
+    }
+
+    function isApproved() {
+      return hasUserDoc() && userData().status == 'approved';
+    }
+
+    function isMasterAdmin() {
+      return signedIn() && userEmail() == 'a0938676069@gmail.com';
+    }
+
     function isSuperAdmin() {
-      return request.auth.token.email == 'a0938676069@gmail.com' || get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.roleId == 'superadmin';
+      return isMasterAdmin() || (hasUserDoc() && userData().roleId == 'superadmin');
     }
 
     function isAdmin() {
-      let u = get(/databases/$(database)/documents/users/$(request.auth.token.email)).data;
-      return request.auth.token.email == 'a0938676069@gmail.com' || u.role == 'admin' || u.roleId == 'superadmin' || u.roleId == 'admin';
+      return isSuperAdmin()
+        || (hasUserDoc() && (userData().role == 'admin' || userData().roleId == 'admin'));
+    }
+
+    function isLuggageOwner() {
+      return resource.data.checkerEmail == userEmail();
+    }
+
+    function validPieceCount(data) {
+      return (data.pieceCount is int || data.pieceCount is float)
+        && data.pieceCount >= 0
+        && data.pieceCount <= 20;
+    }
+
+    function validOptionalCheckerName(data) {
+      return !data.keys().hasAny(['checkerName'])
+        || data.checkerName == null
+        || data.checkerName is string;
+    }
+
+    function validLuggageCreate() {
+      return request.resource.data.keys().hasOnly([
+          'qrId',
+          'ownerId',
+          'building',
+          'pieceCount',
+          'checkerEmail',
+          'checkerName',
+          'conditions',
+          'remarks',
+          'scannedAt'
+        ])
+        && request.resource.data.qrId is string
+        && request.resource.data.ownerId is string
+        && request.resource.data.building is string
+        && validPieceCount(request.resource.data)
+        && request.resource.data.checkerEmail == userEmail()
+        && validOptionalCheckerName(request.resource.data)
+        && request.resource.data.conditions is map
+        && request.resource.data.remarks is map
+        && request.resource.data.scannedAt == request.time;
+    }
+
+    function validLuggageUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pieceCount'])
+        && validPieceCount(request.resource.data);
     }
 
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.token.email == userId;
-      allow update: if request.auth != null && (isSuperAdmin() || (request.auth.token.email == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'roleId', 'status'])));
-      allow delete: if request.auth != null && isSuperAdmin();
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && userEmail() == userId
+        && request.resource.data.email == userId
+        && request.resource.data.keys().hasOnly(['email', 'role', 'roleId', 'status']);
+      allow update: if signedIn()
+        && (
+          isSuperAdmin()
+          || (
+            userEmail() == userId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name',
+              'building',
+              'floor',
+              'floorRole'
+            ])
+          )
+        );
+      allow delete: if isSuperAdmin();
     }
 
     match /settings/{docId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && isSuperAdmin();
+      allow read: if signedIn();
+      allow write: if isSuperAdmin();
     }
-    
+
     match /luggages/{luggageId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.token.email)).data.status == 'approved';
-      allow delete: if request.auth != null && (isAdmin() || resource.data.checkerEmail == request.auth.token.email);
-      allow update: if request.auth != null && (isAdmin() || resource.data.checkerEmail == request.auth.token.email);
+      allow read: if isApproved();
+      allow create: if isApproved() && validLuggageCreate();
+      allow update: if isApproved() && (isAdmin() || isLuggageOwner()) && validLuggageUpdate();
+      allow delete: if isApproved() && (isAdmin() || isLuggageOwner());
     }
   }
 }

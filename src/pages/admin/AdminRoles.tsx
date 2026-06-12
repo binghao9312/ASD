@@ -6,10 +6,6 @@ export function AdminRoles() {
   const [roles, setRoles] = useState<RoleGroup[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadRoles();
-  }, []);
-
   const loadRoles = async () => {
     setLoading(true);
     const data = await getRoles();
@@ -17,11 +13,17 @@ export function AdminRoles() {
     setLoading(false);
   };
 
+  useEffect(() => {
+    void (async () => {
+      await loadRoles();
+    })();
+  }, []);
+
   const handleSave = async () => {
     try {
       await saveRoles(roles);
       alert('設定已儲存');
-    } catch (err) {
+    } catch {
       alert('儲存失敗');
     }
   };
@@ -83,6 +85,10 @@ export function AdminRoles() {
             <Save className="w-4 h-4" /> 儲存變更
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+        使用者管理與系統設定目前只對超級管理員生效；其他身分組主要用來控制是否可檢視所有行李資料。
       </div>
 
       <div className="space-y-3">
