@@ -1,12 +1,13 @@
 import { Clock, LogOut } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { isDashboardOnlyUser } from '../services/permissions';
 
 export function PendingApproval() {
   const { logout, userData } = useAuth();
 
   if (userData?.status === 'approved') {
-    return <Navigate to="/scan" replace />;
+    return <Navigate to={isDashboardOnlyUser(userData) ? '/dashboard' : '/scan'} replace />;
   }
 
   return (

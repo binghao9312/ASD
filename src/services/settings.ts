@@ -1,15 +1,7 @@
 ﻿import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-
-export interface RoleGroup {
-  id: string;
-  name: string;
-  permissions: {
-    manageUsers: boolean;
-    viewAllData: boolean;
-    manageSettings: boolean;
-  };
-}
+import { defaultRoles, mergeRoleGroups, type RoleGroup } from './roleDefaults.ts';
+export { defaultRoles, type RoleGroup } from './roleDefaults.ts';
 
 export interface FormField {
   id: string;
@@ -17,49 +9,6 @@ export interface FormField {
   enabled: boolean;
   requiresRemark: boolean;
 }
-
-export const defaultRoles: RoleGroup[] = [
-  {
-    id: 'superadmin',
-    name: '超級管理員',
-    permissions: { manageUsers: true, viewAllData: true, manageSettings: true }
-  },
-  {
-    id: 'coordinator',
-    name: '總幹事',
-    permissions: { manageUsers: true, viewAllData: true, manageSettings: false }
-  },
-  {
-    id: 'dorm_head',
-    name: '正舍長',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
-  },
-  {
-    id: 'deputy_dorm_head',
-    name: '副舍長',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
-  },
-  {
-    id: 'floor_head',
-    name: '正樓長',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
-  },
-  {
-    id: 'deputy_floor_head',
-    name: '副樓長',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: false }
-  },
-  {
-    id: 'admin',
-    name: '管理員',
-    permissions: { manageUsers: false, viewAllData: true, manageSettings: true }
-  },
-  {
-    id: 'user',
-    name: '一般使用者',
-    permissions: { manageUsers: false, viewAllData: false, manageSettings: false }
-  }
-];
 
 export const defaultFormFields: FormField[] = [
   { id: 'clean', label: '周圍環境清空且乾淨', enabled: true, requiresRemark: false },
@@ -73,7 +22,7 @@ export const getRoles = async (): Promise<RoleGroup[]> => {
     const docRef = doc(db, 'settings', 'roles');
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
-      return docSnap.data().groups as RoleGroup[];
+      return mergeRoleGroups(docSnap.data().groups as RoleGroup[]);
     }
     try {
       await setDoc(docRef, { groups: defaultRoles });

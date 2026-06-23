@@ -5,7 +5,7 @@ import { db } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
 import { UserCircle2 } from 'lucide-react';
 
-const FLOOR_ROLES = ['總幹事', '舍長', '副舍長', '樓長', '副樓長'];
+const FLOOR_ROLES = ['總幹事', '舍長', '副舍長', '樓長', '副樓長', '實習幹部'];
 
 interface BuildingSettings {
   [key: string]: {
@@ -95,7 +95,7 @@ export function SetupProfile() {
     if (role === '舍長' || role === '副舍長') {
       return isAdmin;
     }
-    // 樓長、副樓長所有人都可以選
+    // 樓長、副樓長、實習幹部所有人都可以選
     // 其他職位如果已經被選過就不能選（除非是當前用戶自己的職位）
     if (takenRoles.has(role) && role !== userData?.floorRole) {
       return false;

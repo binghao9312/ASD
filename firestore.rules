@@ -54,6 +54,12 @@ service cloud.firestore {
         || data.checkerName is string;
     }
 
+    function validOptionalDashboardManualFields(data) {
+      return (!data.keys().hasAny(['source']) || data.source == 'dashboard-manual')
+        && (!data.keys().hasAny(['luggagePlaced']) || data.luggagePlaced is bool)
+        && (!data.keys().hasAny(['manualCreatedBy']) || data.manualCreatedBy == null || data.manualCreatedBy is string);
+    }
+
     function validLuggageCreate() {
       return request.resource.data.keys().hasOnly([
           'qrId',
@@ -64,7 +70,10 @@ service cloud.firestore {
           'checkerName',
           'conditions',
           'remarks',
-          'scannedAt'
+          'scannedAt',
+          'source',
+          'luggagePlaced',
+          'manualCreatedBy'
         ])
         && request.resource.data.qrId is string
         && request.resource.data.ownerId is string
@@ -72,6 +81,8 @@ service cloud.firestore {
         && validPieceCount(request.resource.data)
         && request.resource.data.checkerEmail == userEmail()
         && validOptionalCheckerName(request.resource.data)
+        && validOptionalDashboardManualFields(request.resource.data)
+        && (!request.resource.data.keys().hasAny(['source', 'luggagePlaced', 'manualCreatedBy']) || isSuperAdmin())
         && request.resource.data.conditions is map
         && request.resource.data.remarks is map
         && request.resource.data.scannedAt == request.time;

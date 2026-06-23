@@ -2,16 +2,17 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Building } from 'lucide-react';
+import { isDashboardOnlyUser } from '../services/permissions';
 
 export function Login() {
-  const { user, login } = useAuth();
+  const { user, userData, login } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
     if (user) {
-      navigate('/scan');
+      navigate(isDashboardOnlyUser(userData) ? '/dashboard' : '/scan');
     }
-  }, [user, navigate]);
+  }, [user, userData, navigate]);
 
   const handleLogin = async () => {
     try {

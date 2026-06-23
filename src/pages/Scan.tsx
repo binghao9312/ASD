@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { collection, addDoc, getDocs, query, serverTimestamp, where, limit } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, serverTimestamp, where, limit, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -12,13 +12,24 @@ import {
   QrCode,
   Search,
   UserCheck,
+  X,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
+import {
+  addScannedQrToQueue,
+  getDuplicateWarnings,
+  getRegistrationQrIds,
+  getUniqueNonEmptyQrIds,
+  type DuplicateWarning,
+} from '../utils/scanQueue';
+import { getDateRangeConstraints, getDateRangeLabel } from '../services/dateRange';
 import { getBuildingConfig, getDefaultBuildingConfig, getFormFields, type FormField } from '../services/settings';
+import { getDataValiditySettings } from '../services/settings';
 import type { LuggageRecord } from './History';
 import type { Html5Qrcode } from 'html5-qrcode';
 
 type ScanMode = 'register' | 'lookup';
+type MessageType = 'success' | 'warning' | 'error';
 type TimestampLike = { toDate?: () => Date; toMillis?: () => number } | Date | string | number | null | undefined;
 
 const DEFAULT_BUILDING = '毅志';
@@ -83,6 +94,7 @@ export function Scan() {
   const { user, userData } = useAuth();
   const [mode, setMode] = useState<ScanMode>('register');
   const [qrId, setQrId] = useState('');
+  const [pendingQrIds, setPendingQrIds] = useState<string[]>([]);
   const [roomNumber, setRoomNumber] = useState('');
   const [building, setBuilding] = useState<string | null>(null);
   const [pieceCount, setPieceCount] = useState<number | ''>(3);
@@ -90,9 +102,13 @@ export function Scan() {
   const [isScanning, setIsScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [duplicateCheckLoading, setDuplicateCheckLoading] = useState(false);
   const [lookupRecords, setLookupRecords] = useState<LuggageRecord[] | null>(null);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: MessageType; text: string } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [duplicateWarningOpen, setDuplicateWarningOpen] = useState(false);
+  const [duplicateWarnings, setDuplicateWarnings] = useState<DuplicateWarning[]>([]);
+  const [duplicateDateRangeLabel, setDuplicateDateRangeLabel] = useState('');
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const [formFields, setFormFields] = useState<FormField[]>([]);
@@ -163,6 +179,102 @@ export function Scan() {
     }
   };
 
+  const findDuplicateRegistrationWarnings = async (candidateQrIds: string[], candidateRoomNumber: string) => {
+    const uniqueCandidateQrIds = getUniqueNonEmptyQrIds(candidateQrIds);
+    const normalizedRoomNumber = candidateRoomNumber.trim().toUpperCase();
+    if (uniqueCandidateQrIds.length === 0 && !normalizedRoomNumber) {
+      return {
+        warnings: [],
+        dateRangeLabel: getDateRangeLabel('', ''),
+      };
+    }
+
+    const dataValidity = await getDataValiditySettings();
+    const dateRangeConstraints = getDateRangeConstraints(dataValidity.startDate, dataValidity.endDate);
+    const timeConstraints = dateRangeConstraints.length > 0
+      ? [...dateRangeConstraints, orderBy('scannedAt', 'desc')]
+      : [];
+
+    const qrSnapshots = await Promise.all(
+      uniqueCandidateQrIds.map((candidateQrId) => getDocs(query(
+        collection(db, 'luggages'),
+        where('qrId', '==', candidateQrId),
+        ...timeConstraints,
+        limit(1),
+      ))),
+    );
+    const registeredQrIds = uniqueCandidateQrIds.filter((_, index) => !qrSnapshots[index].empty);
+    const roomSnapshot = normalizedRoomNumber
+      ? await getDocs(query(
+        collection(db, 'luggages'),
+        where('ownerId', '==', normalizedRoomNumber),
+        ...timeConstraints,
+        limit(1),
+      ))
+      : null;
+    const registeredRoomNumbers = roomSnapshot && !roomSnapshot.empty ? [normalizedRoomNumber] : [];
+
+    return {
+      warnings: getDuplicateWarnings({
+        candidateQrIds,
+        registeredQrIds,
+        candidateRoomNumber: normalizedRoomNumber,
+        registeredRoomNumbers,
+      }),
+      dateRangeLabel: getDateRangeLabel(dataValidity.startDate, dataValidity.endDate),
+    };
+  };
+
+  const handleManualQrChange = (value: string) => {
+    setQrId(value);
+    setDuplicateWarnings([]);
+    setDuplicateDateRangeLabel('');
+    setDuplicateWarningOpen(false);
+    if (mode === 'lookup') {
+      setLookupRecords(null);
+      return;
+    }
+
+    const normalizedQrId = value.trim();
+    setPendingQrIds(normalizedQrId ? [normalizedQrId] : []);
+  };
+
+  const removePendingQrId = (value: string) => {
+    const nextQrIds = pendingQrIds.filter((item) => item !== value);
+    setPendingQrIds(nextQrIds);
+    setQrId(nextQrIds.at(-1) ?? '');
+  };
+
+  const handleScannedQr = (decodedText: string) => {
+    stopScanner();
+
+    if (mode === 'lookup') {
+      setQrId(decodedText);
+      lookupByQrId(decodedText);
+      return;
+    }
+
+    const result = addScannedQrToQueue(pendingQrIds, decodedText);
+    if (!result.qrId) {
+      setMessage({ type: 'error', text: '掃描結果是空的，請重新掃描' });
+      return;
+    }
+
+    setPendingQrIds(result.qrIds);
+    setQrId(result.qrId);
+    setLookupRecords(null);
+    setDuplicateWarnings([]);
+    setDuplicateDateRangeLabel('');
+    setDuplicateWarningOpen(false);
+
+    if (result.duplicate) {
+      setMessage({ type: 'warning', text: '這張 QR 已在本次暫存清單中，已保留原本那筆資料。' });
+      return;
+    }
+
+    setMessage({ type: 'success', text: `已暫存 ${result.qrIds.length} 筆 QR` });
+  };
+
   const startScanner = () => {
     setIsScanning(true);
     setMessage(null);
@@ -177,11 +289,7 @@ export function Scan() {
             { facingMode: 'environment' },
             { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1 },
             (decodedText) => {
-              setQrId(decodedText);
-              stopScanner();
-              if (mode === 'lookup') {
-                lookupByQrId(decodedText);
-              }
+              handleScannedQr(decodedText);
             },
             () => {
               // Ignore scan errors while the camera is searching for a QR code.
@@ -215,6 +323,10 @@ export function Scan() {
     setMode(nextMode);
     setMessage(null);
     setLookupRecords(null);
+    setPendingQrIds([]);
+    setDuplicateWarnings([]);
+    setDuplicateDateRangeLabel('');
+    setDuplicateWarningOpen(false);
   };
 
   const handleRoomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,31 +357,60 @@ export function Scan() {
       }
     }
 
+    const qrIdsToRegister = getRegistrationQrIds(pendingQrIds, qrId);
+    setDuplicateCheckLoading(true);
     setMessage(null);
-    setConfirmOpen(true);
+
+    try {
+      const duplicateResult = await findDuplicateRegistrationWarnings(qrIdsToRegister, roomNumber);
+      if (duplicateResult.warnings.length > 0) {
+        setDuplicateWarnings(duplicateResult.warnings);
+        setDuplicateDateRangeLabel(duplicateResult.dateRangeLabel);
+        setDuplicateWarningOpen(true);
+        return;
+      }
+
+      setConfirmOpen(true);
+    } catch (error) {
+      console.error('Error checking duplicate QR ids:', error);
+      setMessage({ type: 'warning', text: '無法確認 QR 是否已登記，請在送出前再次確認。' });
+      setConfirmOpen(true);
+    } finally {
+      setDuplicateCheckLoading(false);
+    }
   };
 
   const submitRegistration = async () => {
     if (!building || typeof pieceCount !== 'number') return;
+    const qrIdsToRegister = getRegistrationQrIds(pendingQrIds, qrId);
     setLoading(true);
     setMessage(null);
     setConfirmOpen(false);
 
     try {
-      await addDoc(collection(db, 'luggages'), {
-        qrId: qrId.trim(),
-        ownerId: roomNumber,
-        building,
-        pieceCount,
-        checkerEmail: user?.email,
-        checkerName: userData?.name || null,
-        conditions,
-        remarks,
-        scannedAt: serverTimestamp(),
-      });
+      await Promise.all(
+        qrIdsToRegister.map((registrationQrId) => addDoc(collection(db, 'luggages'), {
+          qrId: registrationQrId,
+          ownerId: roomNumber,
+          building,
+          pieceCount,
+          checkerEmail: user?.email,
+          checkerName: userData?.name || null,
+          conditions,
+          remarks,
+          scannedAt: serverTimestamp(),
+        })),
+      );
 
-      setMessage({ type: 'success', text: '行李登記完成' });
+      setMessage({
+        type: 'success',
+        text: qrIdsToRegister.length > 1 ? `已完成 ${qrIdsToRegister.length} 筆行李登記` : '行李登記完成',
+      });
       setQrId('');
+      setPendingQrIds([]);
+      setDuplicateWarnings([]);
+      setDuplicateDateRangeLabel('');
+      setDuplicateWarningOpen(false);
       setRoomNumber('');
       setBuilding(null);
       setPieceCount(3);
@@ -284,6 +425,9 @@ export function Scan() {
   };
 
   const latestLookupRecord = lookupRecords?.[0];
+  const registrationQrIds = getRegistrationQrIds(pendingQrIds, qrId);
+  const duplicateQrWarnings = duplicateWarnings.filter((warning) => warning.type === 'qr');
+  const duplicateRoomWarnings = duplicateWarnings.filter((warning) => warning.type === 'room');
   const selectedInspectionItems = formFields
     .filter((field) => field.enabled && conditions[field.id])
     .map((field) => ({
@@ -339,7 +483,9 @@ export function Scan() {
             'flex items-center gap-3 rounded-xl p-4 text-sm font-medium',
             message.type === 'success'
               ? 'border border-green-200 bg-green-50 text-green-700'
-              : 'border border-red-200 bg-red-50 text-red-700',
+              : message.type === 'warning'
+                ? 'border border-amber-200 bg-amber-50 text-amber-700'
+                : 'border border-red-200 bg-red-50 text-red-700',
           )}
         >
           {message.type === 'success' ? <CheckCircle2 className="h-5 w-5" /> : <AlertCircle className="h-5 w-5" />}
@@ -393,8 +539,7 @@ export function Scan() {
                     type="text"
                     value={qrId}
                     onChange={(e) => {
-                      setQrId(e.target.value);
-                      if (mode === 'lookup') setLookupRecords(null);
+                      handleManualQrChange(e.target.value);
                     }}
                     placeholder="請掃描或輸入貼紙編號"
                     className="input-styled flex-1"
@@ -408,6 +553,32 @@ export function Scan() {
                     <QrCode className="h-6 w-6" />
                   </button>
                 </div>
+                {mode === 'register' && pendingQrIds.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-800 dark:bg-slate-950">
+                    <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      <span>本次暫存 QR</span>
+                      <span>{pendingQrIds.length} 筆</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {pendingQrIds.map((item, index) => (
+                        <span
+                          key={item}
+                          className="inline-flex max-w-full items-center gap-1 rounded-md border border-primary-100 bg-primary-50 px-2 py-1 font-mono text-xs font-semibold text-primary-700 dark:border-primary-800 dark:bg-primary-900/30 dark:text-primary-300"
+                        >
+                          <span className="truncate">{index + 1}. {item}</span>
+                          <button
+                            type="button"
+                            onClick={() => removePendingQrId(item)}
+                            className="rounded p-0.5 text-primary-500 hover:bg-primary-100 hover:text-primary-700 dark:hover:bg-primary-900"
+                            aria-label={`移除 ${item}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ) : (
@@ -473,10 +644,10 @@ export function Scan() {
 
               <button
                 type="submit"
-                disabled={!building || loading}
+                disabled={!building || loading || duplicateCheckLoading}
                 className="btn-primary disabled:opacity-50 disabled:active:scale-100"
               >
-                {loading ? '登記中...' : '送出登記'}
+                {duplicateCheckLoading ? '檢查中...' : loading ? '登記中...' : '送出登記'}
               </button>
             </>
           )}
@@ -554,6 +725,73 @@ export function Scan() {
         </div>
       )}
 
+      {duplicateWarningOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
+            <div className="mb-4 flex items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-slate-100">資料可能重複</h3>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  下列資料在有效範圍內已有登記紀錄，請確認是不是重複登記。
+                </p>
+                <p className="mt-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  資料有效範圍：{duplicateDateRangeLabel || '不限制'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+              {duplicateQrWarnings.length > 0 && (
+                <div>
+                  <div className="mb-1 text-xs font-bold">QR Code</div>
+                  <div className="space-y-1 font-mono font-semibold">
+                    {duplicateQrWarnings.map((item, index) => (
+                      <div key={`qr-${item.value}`}>{index + 1}. {item.value}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {duplicateRoomWarnings.length > 0 && (
+                <div>
+                  <div className="mb-1 text-xs font-bold">房床號</div>
+                  <div className="space-y-1 font-mono font-semibold">
+                    {duplicateRoomWarnings.map((item, index) => (
+                      <div key={`room-${item.value}`}>{index + 1}. {item.value}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateWarningOpen(false);
+                  setDuplicateWarnings([]);
+                  setDuplicateDateRangeLabel('');
+                }}
+                className="btn-secondary w-auto px-4 py-2"
+              >
+                返回修改
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDuplicateWarningOpen(false);
+                  setConfirmOpen(true);
+                }}
+                className="btn-primary w-auto px-4 py-2"
+              >
+                仍要登記
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-slate-900">
@@ -564,7 +802,7 @@ export function Scan() {
 
             <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-800 dark:bg-slate-950">
               {[
-                ['QR Code', qrId.trim() || '未輸入'],
+                ['QR Code', registrationQrIds.length > 1 ? `${registrationQrIds.length} 筆 QR` : registrationQrIds[0] || '未輸入'],
                 ['房床號', roomNumber],
                 ['棟別', building || '未辨識'],
                 ['行李件數', `${pieceCount || 0} 件`],
@@ -574,6 +812,19 @@ export function Scan() {
                   <span className="font-semibold text-slate-900 dark:text-slate-100">{value}</span>
                 </div>
               ))}
+
+              {registrationQrIds.length > 1 && (
+                <div className="border-t border-slate-200 pt-2 dark:border-slate-800">
+                  <div className="grid grid-cols-[5rem_1fr] gap-3">
+                    <span className="text-slate-500 dark:text-slate-400">QR 清單</span>
+                    <div className="space-y-1 font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
+                      {registrationQrIds.map((item, index) => (
+                        <div key={item}>{index + 1}. {item}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-slate-200 pt-2 dark:border-slate-800">
                 <div className="grid grid-cols-[5rem_1fr] gap-3">

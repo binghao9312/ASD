@@ -20,6 +20,14 @@
       "collectionGroup": "luggages",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "ownerId", "mode": "ASCENDING" },
+        { "fieldPath": "scannedAt", "mode": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "luggages",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "building", "mode": "ASCENDING" },
         { "fieldPath": "scannedAt", "mode": "DESCENDING" }
       ]

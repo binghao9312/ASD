@@ -1,5 +1,5 @@
 import type { UserData } from '../hooks/useAuth';
-import { defaultRoles, type RoleGroup } from './settings';
+import { defaultRoles, type RoleGroup } from './roleDefaults.ts';
 
 const MASTER_ADMIN_EMAIL = 'a0938676069@gmail.com';
 
@@ -27,8 +27,17 @@ export const isLegacyAdminUser = (userData: UserData | null | undefined) => {
   return isSuperAdminUser(userData) || userData?.roleId === 'admin' || userData?.role === 'admin';
 };
 
+export const isDashboardOnlyUser = (userData: UserData | null | undefined) => {
+  return !isSuperAdminUser(userData) && userData?.roleId === 'teacher';
+};
+
+export const canAccessDashboardUser = (userData: UserData | null | undefined) => {
+  return isSuperAdminUser(userData) || isDashboardOnlyUser(userData);
+};
+
 export const canPotentiallyAccessAdmin = (userData: UserData | null | undefined) => {
   if (!userData) return false;
+  if (isDashboardOnlyUser(userData)) return false;
   if (isLegacyAdminUser(userData)) return true;
   return Boolean(userData.roleId && userData.roleId !== 'user');
 };
