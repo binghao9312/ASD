@@ -610,6 +610,9 @@ export function Scan() {
                   placeholder="例如：20502-3"
                   className="input-styled uppercase"
                 />
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium leading-5 text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                  備註：登入請填寫當前房床號；貼紙請寫下學期的房床號。
+                </p>
                 <div className="h-5">
                   {roomNumber &&
                     (building ? (
