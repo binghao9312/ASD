@@ -30,6 +30,26 @@ SCAN 頁面目前也提醒現場規則：
 
 管理員可以在後台調整使用者權限、行李資料、檢查項目與棧別設定；具有 Dashboard 權限的使用者可查看整體檢查進度與未完成房床。
 
+## 畫面截圖
+
+### 掃描與登記
+
+<img src="docs/screenshots/scan-register.png" alt="掃描頁登記模式" width="360">
+<img src="docs/screenshots/scan-register-form.png" alt="掃描頁房床號與行李件數" width="360">
+
+### 歷史紀錄
+
+<img src="docs/screenshots/history.png" alt="最近掃描紀錄頁" width="360">
+
+### 管理後台
+
+<img src="docs/screenshots/admin.png" alt="管理後台資料管理頁" width="360">
+
+### Dashboard
+
+<img src="docs/screenshots/dashboard-overview.png" alt="超級管理員 Dashboard 總覽" width="760">
+<img src="docs/screenshots/dashboard-detail.png" alt="超級管理員 Dashboard 樓層與床位細節" width="760">
+
 ## 技術架構
 
 - Frontend: React 19 + TypeScript + Vite
